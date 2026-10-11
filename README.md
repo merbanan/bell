@@ -338,15 +338,29 @@ seconds. The log still receives the bytes in the meantime.
 
 Two ways in, both on the **System & firmware** page:
 
-1. **Ask a manifest for a newer build.** Point the firmware at a URL serving
-   JSON like this:
+1. **Ask a manifest for a newer build.** Out of the box this points at
+
+   ```
+   https://raw.githubusercontent.com/merbanan/bell/master/firmware.json
+   ```
+
+   which is the `firmware.json` in this repository. Publish a release and the
+   device sees it — a tag, a `.bin` uploaded to it, and the manifest updated is
+   the whole job:
+
+   ```sh
+   pio run -e nodemcuv2
+   gh release create v1.1.0 .pio/build/nodemcuv2/firmware.bin --latest
+   # then bump "version" and "url" in firmware.json and push
+   ```
+
+   The manifest is JSON like this:
 
    ```json
    {
-     "version": "1.1.0",
-     "url": "https://example.org/bell-1.1.0.bin",
-     "size": 537408,
-     "notes": "faster telnet negotiation"
+     "version": "1.0.0",
+     "url": "https://github.com/merbanan/bell/releases/download/v1.0.0/bell-1.0.0.bin",
+     "notes": "two telnet ports, ser2net-style negotiation"
    }
    ```
 
@@ -354,10 +368,8 @@ Two ways in, both on the **System & firmware** page:
    device downloads the image in 4 kB chunks between `loop()` passes, so telnet
    sessions and this page stay alive during the install, and reboots when it is
    done. The server must send a `Content-Length`; a chunked reply is refused
-   rather than risking a truncated image.
-
-   Publish a firmware image with `pio run -t build` and upload the resulting
-   `.pio/build/nodemcuv2/firmware.bin` next to the manifest.
+   rather than risking a truncated image. Set your own manifest under
+   **Network → Update manifest** to run your own firmware.
 
    The image has to fit `OTA_SLOT_BYTES`. An oversized download would be placed
    so that it reaches back over the running firmware, so the device checks the
@@ -366,8 +378,9 @@ Two ways in, both on the **System & firmware** page:
 2. **Upload a `.bin`** straight from the browser, with a progress bar.
 
 TLS is available but the certificate is not validated — an ESP8266 has no room
-for a bundled trust store. Point the manifest at a host you control and treat
-the published release page as the real source of truth.
+for a bundled trust store, and the handshake costs a chunk of the heap this
+firmware is careful about. Treat the release page as the source of truth, and
+check what you are about to flash.
 
 ## HTTP API
 

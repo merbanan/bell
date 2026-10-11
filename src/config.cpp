@@ -67,8 +67,10 @@ void cfgDefaults() {
     g_cfg.clearOnBoot = false;
     g_cfg.statusLed = true;
 
+    // The manifest lives with the source, and points at the newest release
+    // asset, so publishing a release is all it takes to offer an update.
     strlcpy(g_cfg.otaUrl,
-            "https://raw.githubusercontent.com/YOUR-ORG/uart-telnet-server/main/firmware.json",
+            "https://raw.githubusercontent.com/merbanan/bell/master/firmware.json",
             sizeof(g_cfg.otaUrl));
     g_cfg.otaAuto = false;
 }
