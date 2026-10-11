@@ -1,0 +1,5 @@
+{
+  "version": "1.0.0",
+  "url": "https://github.com/merbanan/bell/releases/download/v1.0.0/bell-1.0.0.bin",
+  "notes": "UART over telnet for the ESP8266. Two telnet ports, read/write and read only. ser2net-style negotiation, IAC doubling on output, web interface with status/console and a UART log, GPIO control and OTA updates."
+}
