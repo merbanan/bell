@@ -1,0 +1,18 @@
+# Build output
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# PlatformIO / editor
+.vscode/
+.idea/
+*.swp
+
+# Firmware images
+firmware.bin
+*.elf
+*.map
+
+# OS cruft
+.DS_Store
+Thumbs.db
