@@ -51,6 +51,11 @@ static uint8_t  s_pwmStep = 0;
 static uint32_t s_pwmNext = 0;
 static uint32_t s_ledNext = 0;
 static bool     s_ready   = false;     // setup() finished
+static uint32_t s_readyAt = 0;         // when it became ready
+// Last setting seen by the LED task, so a change starts the countdown again
+// rather than judging the new timeout against the time already served.
+static uint16_t s_ledSecSeen = 0xFFFF;
+static bool     s_ledOnSeen  = true;
 
 static void ledDrive(bool on) {
 #ifdef LED_BUILTIN
@@ -122,6 +127,15 @@ static void ledTask() {
         return;
     }
 
+    if (s_ledSecSeen != g_cfg.ledSeconds || s_ledOnSeen != g_cfg.statusLed) {
+        s_ledSecSeen = g_cfg.ledSeconds;
+        s_ledOnSeen  = g_cfg.statusLed;
+        s_readyAt    = now;
+    }
+
+    // Off means off: no boot blink, no steady light. The reset announcement
+    // above still runs, because that is confirmation of a destructive gesture
+    // and is not a status light.
     if (!g_cfg.statusLed) {
         led(LED_OFF);
         serviceLed();
@@ -129,7 +143,10 @@ static void ledTask() {
     }
 
     if (s_ready) {
-        led(LED_DIM);
+        // Dim while it is worth showing, then get out of the way.
+        bool stillWanted = g_cfg.ledSeconds == 0 ||
+                           (now - s_readyAt) < (uint32_t)g_cfg.ledSeconds * 1000u;
+        led(stillWanted ? LED_DIM : LED_OFF);
         serviceLed();
         return;
     }
@@ -155,6 +172,13 @@ void setup() {
     LittleFS.begin();
     cfgLoad();
 
+    // Pins before radio. Setting the outputs is the one thing that can usefully
+    // happen before the network, and the radio is nearly all of the boot: the
+    // access point alone is about 900 ms of it. Anything this logs goes into
+    // the staged pre-buffer and is replayed once the ring exists, so moving it
+    // here costs nothing.
+    gpioInit();
+
     // Radio first, log second: sizing the ring from the heap that is left once
     // lwIP has taken its share is the only way to be sure that what remains is
     // still enough for a working connection.
@@ -167,7 +191,6 @@ void setup() {
     }
 
     uartSetup();
-    gpioInit();
     webBegin();
 
     SYSLOG("[sys] %s ready - telnet on port %d, web on port %d",
@@ -175,7 +198,9 @@ void setup() {
 
     if (g_cfg.otaAuto) otaCheckNow();
 
-    // Everything is up: from here the LED just says so.
+    // Everything is up: from here the LED just says so, for as long as it is
+    // configured to be worth saying.
+    s_readyAt = millis();
     s_ready = true;
 }
 

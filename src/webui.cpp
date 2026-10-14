@@ -163,6 +163,7 @@ static void handleState() {
     out += ",\"logTx\":" + String(g_cfg.logTx ? "true" : "false");
     out += ",\"clearOnBoot\":" + String(g_cfg.clearOnBoot ? "true" : "false");
     out += ",\"statusLed\":" + String(g_cfg.statusLed ? "true" : "false");
+    out += ",\"ledSeconds\":" + String((uint32_t)g_cfg.ledSeconds);
     out += ",\"rx\":" + String((uint64_t)uartRxBytes());
     out += ",\"tx\":" + String((uint64_t)uartTxBytes());
     out += ",\"errors\":" + String((uint32_t)uartRxErrors()) + "}";
@@ -357,6 +358,7 @@ static void handleSaveUart() {
     g_cfg.logTx       = s_server.hasArg("logTx")       ? argOn("logTx")       : g_cfg.logTx;
     g_cfg.clearOnBoot = s_server.hasArg("clearOnBoot") ? argOn("clearOnBoot") : g_cfg.clearOnBoot;
     g_cfg.statusLed   = s_server.hasArg("statusLed")   ? argOn("statusLed")   : g_cfg.statusLed;
+    g_cfg.ledSeconds  = (uint16_t)argLong("ledSeconds", g_cfg.ledSeconds, 0, 3600);
 
     if (!cfgSave()) { failJson("could not write config.json"); return; }
     uartReconfigure();
@@ -641,9 +643,17 @@ static void handleGpioSet() {
 // Type into the device from the browser. Goes out exactly as a telnet client's
 // keystrokes would, so it shares the same path, the same queue and the same
 // back-pressure.
+static bool hexNibble(char c) {
+    if (c >= '0' && c <= '9') return true;
+    return (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+}
+
 static void handleUartSend() {
     String text = s_server.arg("text");
-    text.trim();
+    String raw  = s_server.arg("raw");
+    raw.trim();
+    raw.toLowerCase();
+    bool asHex = raw.length() > 0;
 
     String eol = s_server.arg("eol");
     eol.trim();
@@ -657,23 +667,39 @@ static void handleUartSend() {
     else if (eol.length() && eol != "none")
                             { failJson("end of line must be cr, lf, crlf or none"); return; }
 
-    // Plenty of devices want nothing but a bare line feed - to answer a prompt,
-    // to get past a "press enter", or just to end what was typed already. So an
-    // empty payload is fine as long as it carries a terminator; both empty is
-    // nothing at all.
-    if (!text.length() && !nterm) { failJson("nothing to send"); return; }
+    // Control characters - Ctrl-C and the rest - cannot travel in the text
+    // field: it is trimmed, and everything at or below a space goes with it.
+    // `raw` is hex, so any byte can be sent exactly as it is.
+    if (asHex && (raw.length() & 1)) {
+        failJson("raw must be whole bytes of hex, e.g. 03");
+        return;
+    }
+    for (uint32_t i = 0; asHex && i < raw.length(); i++)
+        if (!hexNibble(raw[i])) { failJson("raw must be hex digits only"); return; }
+
+    uint32_t payload = asHex ? raw.length() / 2 : text.length();
+    if (!payload && !nterm) { failJson("nothing to send"); return; }
 
     // The telnet path is bounded by its transmit queue; this one is not, so the
     // length is capped here rather than by whatever the caller felt like.
-    if (text.length() + nterm > SEND_MAX) {
+    if (payload + nterm > SEND_MAX) {
         failJson("that is longer than " + String((uint32_t)SEND_MAX) + " bytes");
         return;
     }
 
     uint8_t buf[SEND_MAX];
     uint32_t n = 0;
-    memcpy(buf, text.c_str(), text.length());
-    n = text.length();
+    if (asHex) {
+        for (uint32_t i = 0; i < payload; i++) {
+            char hi = raw[i * 2], lo = raw[i * 2 + 1];
+            buf[n++] = (uint8_t)((hi <= '9' ? hi - '0' : hi - 'a' + 10) * 16 +
+                                 (lo <= '9' ? lo - '0' : lo - 'a' + 10));
+        }
+    } else {
+        text.trim();
+        memcpy(buf, text.c_str(), text.length());
+        n = text.length();
+    }
     for (uint8_t i = 0; i < nterm; i++) buf[n++] = term[i];
 
     if (!uartWrite(buf, n)) {

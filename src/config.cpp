@@ -66,6 +66,8 @@ void cfgDefaults() {
     g_cfg.logTx   = false;
     g_cfg.clearOnBoot = false;
     g_cfg.statusLed = true;
+    // Long enough to see it settle, short enough that it is not a night light.
+    g_cfg.ledSeconds = 30;
 
     // The manifest lives with the source, and points at the newest release
     // asset, so publishing a release is all it takes to offer an update.
@@ -158,6 +160,8 @@ void cfgLoad() {
         g_cfg.crlfTx     = u["crlfTx"]     | false;
         g_cfg.clearOnBoot= u["clearOnBoot"]| false;
         g_cfg.statusLed  = u["statusLed"]  | true;
+        if (u["ledSeconds"].is<unsigned long>())
+            g_cfg.ledSeconds = constrain(u["ledSeconds"].as<unsigned long>(), 0UL, 3600UL);
         if (u["flowLed"].is<bool>()) g_cfg.statusLed = u["flowLed"] | true;
     }
 
@@ -215,6 +219,7 @@ bool cfgSave() {
     u["logTx"]       = g_cfg.logTx;
     u["clearOnBoot"] = g_cfg.clearOnBoot;
     u["statusLed"]   = g_cfg.statusLed;
+    u["ledSeconds"]  = g_cfg.ledSeconds;
 
     JsonArray pins = root["gpio"].to<JsonArray>();
     for (uint8_t i = 0; i < g_cfg.gpioCount; i++) {

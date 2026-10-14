@@ -143,6 +143,7 @@ struct Config {
     bool    logTx;                        // also append transmitted bytes to the log
     bool    clearOnBoot;
     bool    statusLed;        // blink while booting, steady once ready
+    uint16_t ledSeconds;      // how long it stays lit after boot; 0 = always
 
     // general purpose outputs
     uint8_t   gpioCount;

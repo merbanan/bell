@@ -46,7 +46,7 @@ reaches the UART.
 * **Log ring** sized from the heap that is actually free at boot, up to 32 kB,
   with a separate console view for the firmware's own messages.
 * **Send box** under the UART log, so you can talk to the device from a browser
-  — including a bare line feed on its own.
+  — including a bare line feed on its own, and a Ctrl-C.
 * **GPIO control** for every pin the hardware will let you have, with a plain
   reason for each one it refuses.
 * **Access point mode** whenever there is nothing to connect to, so a freshly
@@ -251,10 +251,19 @@ UART page for the many devices that want them:
 ## LED
 
 Blink while the module is starting, then a steady **one-tenth brightness** once
-`setup()` has finished — bright enough to see across a room, dim enough to sit
-on a desk all day. The factory-reset blink takes it over at full brightness for
-five seconds before the restart. Unticking **status LED** in the UART setup page
-turns it off entirely.
+`setup()` has finished, then **off** thirty seconds later. Thirty seconds is long
+enough to notice it settled and short enough that it is not a night light.
+
+* The **seconds it stays lit** is a number box next to the checkbox. Default 30,
+  and `0` leaves it on indefinitely for anyone who prefers that.
+* Changing the number **restarts the countdown**, so raising it at 29 seconds
+  remaining does not immediately switch the light off.
+* Unticking **status LED** turns it off entirely — no boot blink, nothing.
+
+The factory-reset blink still runs at full brightness for five seconds before the
+restart even when the LED is switched off. That one is not a status light, it is
+confirmation that a destructive gesture was understood, and withholding it would
+leave you guessing whether the settings were erased.
 
 Two details worth knowing:
 
@@ -270,7 +279,9 @@ Two details worth knowing:
   pin write every 500 us and no timer or interrupt at all.
 
 GPIO2 is that same LED, which is why the GPIO page will not hand it out while the
-status LED is on.
+status LED is on. Timing out is **not** the same as switching it off: the pin stays
+driven high rather than released, so it shows up as still owned until the checkbox
+is actually unticked.
 
 ## GPIO
 
@@ -304,6 +315,19 @@ The refused pins are refused for good reasons, and the API says which applies:
 
 Pins 13 and 15 free up as soon as the UART is moved back to GPIO1/3, and GPIO2
 as soon as the status LED is switched off — both show up without a reboot.
+
+That is done at the very top of `setup()`, before the radio is touched, so the
+pins are live **~240 ms** from power-stable — 90 ms after the SDK takes over, plus
+the ~150 ms of ROM before it — instead of waiting the best part of a second for
+WiFi to come up first. Until that moment the pins are floating inputs, so anything
+downstream that latches on its own reset wants a pull resistor on them.
+
+Remembering is opt-in per pin, and releasing a pin with `/api/gpio/input` drops it
+from the list too. One level is all a pin can hold, so those two cannot both apply.
+
+A brief dip in the power rail is a different case again: if a capacitor holds it
+above brownout the chip never resets, so the outputs simply keep their level and
+nothing needs restoring.
 
 Pins marked *remembered* are put back to their last level every time the module
 boots; the rest are driven until something resets them. Releasing a pin with
@@ -395,7 +419,7 @@ check what you are about to flash.
 | GET    | `/api/scan`              | scan state and results                       |
 | POST   | `/api/net`               | save station / access point / manifest       |
 | POST   | `/api/net/forget`        | forget the station and return to AP mode     |
-| POST   | `/api/uart`              | save and apply the UART settings             |
+| POST   | `/api/uart`              | save the UART and LED settings               |
 | GET    | `/api/update/status`     | current update state                         |
 | POST   | `/api/update/check`      | fetch the manifest and compare               |
 | POST   | `/api/update/flash`      | download and install                         |
@@ -406,6 +430,7 @@ check what you are about to flash.
 | POST   | `/api/gpio/input`        | release a pin back to an input: `pin=5`       |
 | POST   | `/api/uart/send`         | type into the device: `text=AT+GMR&eol=crlf`  |
 | POST   | `/api/gpio/remember`     | restore a pin at boot: `pin=5&name=relay`     |
+| POST   | `/api/uart/send` raw     | exact bytes: `raw=030d0a` (this is Ctrl-C)   |
 | POST   | `/api/gpio/forget`       | stop restoring it                             |
 | POST   | `/api/system/reboot`     | reboot                                       |
 | POST   | `/api/system/factory`    | erase the configuration and reboot           |
@@ -430,6 +455,18 @@ curl -X POST --data-urlencode 'text=AT+GMR' -d 'eol=crlf' \
 line** button in the UART log page, for answering a prompt or getting past a
 "press enter". Empty payload *and* no terminator is refused as having nothing to
 send.
+
+`raw` sends bytes as hex instead, and is the only way to get a control character
+out: the text field is trimmed, and Arduino's `trim()` removes everything at or
+below a space, so a literal Ctrl-C would arrive as nothing at all.
+
+```sh
+curl -X POST -d 'raw=03&eol=none' http://192.168.4.1/api/uart/send   # Ctrl-C
+```
+
+The **Ctrl-C** button next to Send does exactly that. Any byte will do —
+`raw=04` (Ctrl-D), `raw=1a` (Ctrl-Z), `raw=1b` (ESC) — and a terminator can be
+appended to any of them with `eol`.
 
 `/api/log` carries `dirs` — the direction runs overlapping the returned page, as
 `[position, length, direction]` where direction is 0 out, 1 in, 2 the firmware's
@@ -464,7 +501,7 @@ Diagnostics go into the log ring, where the web interface and the telnet log
 show them.
 
 ```
-RAM:   57.9% (used 47424 bytes from 81920 bytes)
+RAM:   58.0% (used 47488 bytes from 81920 bytes)
 Flash: 54.7% (used 571251 bytes from 1044464 bytes)
 ```
 

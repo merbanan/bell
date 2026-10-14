@@ -88,6 +88,7 @@ static bool drive(uint8_t pin, bool value) {
 }
 
 void gpioInit() {
+    uint8_t restored = 0;
     for (uint8_t i = 0; i < g_cfg.gpioCount; i++) {
         const GpioEntry &e = g_cfg.gpio[i];
         if (!gpioUsable(e.pin)) {
@@ -98,9 +99,12 @@ void gpioInit() {
         pinMode(e.pin, OUTPUT);
         digitalWrite(e.pin, e.value ? HIGH : LOW);
         s_drive |= 1UL << e.pin;
+        restored++;
     }
-    if (g_cfg.gpioCount)
-        SYSLOG("[gpio] %u output(s) restored", (unsigned)g_cfg.gpioCount);
+    // When this runs is worth knowing: it is the moment the saved outputs are
+    // live, which is early in the boot and not the same as "ready".
+    SYSLOG("[gpio] %u output(s) applied at %u ms",
+           (unsigned)restored, (unsigned)millis());
 }
 
 bool gpioSet(uint8_t pin, bool value) {

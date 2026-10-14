@@ -81,6 +81,7 @@ static const char WEB_INDEX_HTML[] PROGMEM = R"UI(
           <option value="">none</option>
         </select>
         <button id="btn-send">Send</button>
+        <button id="btn-ctrlc" class="ghost" title="Send a single 0x03 byte">Ctrl-C</button>
         <span id="send-msg" class="msg"></span>
       </div>
       <div class="bar logstat" id="logstat"></div>
@@ -160,7 +161,11 @@ static const char WEB_INDEX_HTML[] PROGMEM = R"UI(
         <label><input type="checkbox" id="crlfTx"> Turn a typed LF into CR+LF towards the UART</label>
         <label><input type="checkbox" id="logTx"> Also record transmitted bytes in the log</label>
         <label><input type="checkbox" id="clearOnBoot"> Start each boot with an empty log</label>
-        <label><input type="checkbox" id="statusLed"> Status LED: blink while booting, steady when ready</label>
+        <label><input type="checkbox" id="statusLed"> Status LED: blink while booting,
+          then steady for
+          <input id="ledSeconds" type="number" min="0" max="3600" step="5" class="tiny"
+                 title="Seconds it stays lit once the module is ready. 0 leaves it on.">
+          s, then off</label>
       </div>
 
       <div class="bar">
@@ -347,6 +352,17 @@ h2{margin:0 0 10px;font-size:13px;letter-spacing:.1em;color:var(--dim);text-tran
 /* The history is the reason to open this page, so it takes the top and most of
    the height; the counters below it are reference, and can be smaller. */
 .card.lead{margin-bottom:10px}
+/* A terminal wants room. Past the normal reading column the comms history runs
+   full bleed, so long lines are not wrapped for the sake of the page width. */
+@media (min-width:1160px){
+  #tab-comms > .card.lead{
+    margin-left:calc(50% - 50vw);
+    margin-right:calc(50% - 50vw);
+    border-left:none;
+    border-right:none;
+    border-radius:0;
+  }
+}
 .card.lead .logwrap{height:52vh}
 .card.tight{padding:10px 12px;margin-bottom:10px}
 .card.tight h2{margin:0 0 6px}
@@ -359,12 +375,14 @@ h2{margin:0 0 10px;font-size:13px;letter-spacing:.1em;color:var(--dim);text-tran
 .card.tight table.kv td{padding:2px 0}
 .card.tight .note{font-size:12px;color:var(--dim)}
 .sendbar{gap:8px;margin-top:8px}
-.sendbar #btn-send-eol{white-space:nowrap}
+.sendbar #btn-send-eol,.sendbar #btn-ctrlc{white-space:nowrap}
 /* Secondary action: a quiet button next to Send, not another heavy one. */
 button.ghost{background:transparent;border-color:var(--line);color:var(--dim)}
 button.ghost:hover{border-color:var(--accent);color:var(--accent)}
 .sendbar #send-text{flex:1;min-width:160px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 .sendbar #send-eol{width:78px}
+/* A seconds field sitting inside a checkbox label. */
+input.tiny{width:62px;display:inline-block;margin:0 4px;padding:3px 6px}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--line);display:inline-block}
 .dot.live{background:var(--ok);box-shadow:0 0 8px var(--ok)}
 .pins{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px}
@@ -901,6 +919,7 @@ function fillForms(s){
   $('#stops').value = u.stops;
   $('#swapPins').value = u.swapPins ? '1' : '0';
   for (const id of ['localEcho','crlfTx','logTx','clearOnBoot','statusLed']) $('#' + id).checked = u[id];
+  $('#ledSeconds').value = u.ledSeconds;
   syncBaud(u.baud);
 }
 
@@ -926,6 +945,7 @@ $('#btn-uart').addEventListener('click', async () => {
     swapPins:$('#swapPins').value === '1',
     localEcho:$('#localEcho').checked, crlfTx:$('#crlfTx').checked,
     logTx:$('#logTx').checked, clearOnBoot:$('#clearOnBoot').checked,
+    ledSeconds:$('#ledSeconds').value,
     statusLed:$('#statusLed').checked
   })));
   say('#uart-msg', j.ok ? 'UART set to ' + baud + ' ' + $('#bits').value +
@@ -1163,6 +1183,14 @@ async function sendToUart(emptyLine){
 }
 $('#btn-send').addEventListener('click', () => sendToUart(false));
 $('#btn-send-eol').addEventListener('click', () => sendToUart(true));
+
+// Control characters cannot go through the text field, which is trimmed; they
+// are sent as hex so the byte arrives exactly as it is.
+$('#btn-ctrlc').addEventListener('click', async () => {
+  const r = await post('/api/uart/send', { raw:'03', eol:'none' });
+  if (!r.ok){ say('#send-msg', r.error, 'bad'); return; }
+  say('#send-msg', 'sent Ctrl-C (0x03)', 'good');
+});
 $('#send-text').addEventListener('keydown', e => {
   if (e.key === 'Enter') sendToUart(false);
 });
