@@ -3,7 +3,7 @@
 #include <Arduino.h>
 
 #ifndef FW_VERSION
-#define FW_VERSION "1.0.0"
+#define FW_VERSION "1.1.0"
 #endif
 
 #ifndef FW_BOARD

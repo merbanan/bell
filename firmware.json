@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
-  "url": "https://github.com/merbanan/bell/releases/download/v1.0.0/bell-1.0.0.bin",
-  "notes": "UART over telnet for the ESP8266. Two telnet ports, read/write and read only. ser2net-style negotiation, IAC doubling on output, web interface with status/console and a UART log, GPIO control and OTA updates."
+  "version": "1.1.0",
+  "url": "https://github.com/merbanan/bell/releases/download/v1.1.0/bell-1.1.0.bin",
+  "notes": "UART over telnet for the ESP8266. Two telnet ports, read/write and read only. ser2net-style negotiation, IAC doubling on output, web interface with status/console and a UART log, GPIO control and OTA updates.\n\nRemembered GPIO outputs are now applied before the radio starts, so they are live about 240 ms from power stable instead of about 1.26 s. The status LED holds its dim level then goes off after a configurable number of seconds (30 by default, 0 to leave it on) and can still be switched off entirely. /api/uart/send takes raw=<hex> for control characters, with a Ctrl-C button in the log pane."
 }
