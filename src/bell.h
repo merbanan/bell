@@ -3,7 +3,7 @@
 #include <Arduino.h>
 
 #ifndef FW_VERSION
-#define FW_VERSION "1.1.0"
+#define FW_VERSION "1.2.0"
 #endif
 
 #ifndef FW_BOARD
@@ -37,7 +37,7 @@
 #endif
 
 #define CFG_PATH        "/config.json"
-#define CFG_VERSION     1
+#define CFG_VERSION     2
 #define CFG_MAGIC       "uartsrv"
 
 // Largest image the device will install over the air.
@@ -72,6 +72,14 @@
 // its place sets the limit to 0 and the access point then refuses every client
 // while still advertising itself.
 #define MAX_AP_CLIENTS 4
+
+// The console-server host a configured module connects to. Empty means the
+// uplink stays off even though the station itself is joined.
+#ifndef DEFAULT_HOST_PORT
+#define DEFAULT_HOST_PORT 12345
+#endif
+
+#define MAX_HOST_ADDR   64
 
 // General purpose outputs whose level is restored at boot.
 #define MAX_GPIO_PINS  8

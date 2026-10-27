@@ -2,6 +2,7 @@
 #include "config.h"
 #include "log.h"
 #include "telnet.h"
+#include "uplink.h"
 
 #include <ESP8266WiFi.h>
 #include <DNSServer.h>
@@ -182,6 +183,7 @@ void netBegin() {
 void netApply() {
     s_haveIp = false;
     telnetReset();
+    uplinkReset();
 
     if (s_dnsActive) { s_dns.stop(); s_dnsActive = false; }
 

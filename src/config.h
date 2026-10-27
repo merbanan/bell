@@ -132,6 +132,10 @@ struct Config {
     uint8_t apChannel;
     bool  apHidden;
 
+    // console-server host the module connects to as a telnet client
+    char    hostHost[MAX_HOST_ADDR];
+    uint16_t hostPort;
+
     // uart
     uint32_t baud;
     uint8_t bits;                         // 5..8
@@ -157,4 +161,4 @@ struct Config {
 extern Config g_cfg;
 
 // Sized from measurement rather than from the size of the document: see above.
-#define CFG_POOL_BYTES 3072
+#define CFG_POOL_BYTES 4096

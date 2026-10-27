@@ -220,6 +220,22 @@ static const char WEB_INDEX_HTML[] PROGMEM = R"UI(
     </div>
 
     <div class="card">
+      <h2>Console-server host</h2>
+      <div class="grid">
+        <label class="wide">Host address
+          <input id="hostHost" placeholder="e.g. bellhost.local or 192.168.1.5" autocomplete="off">
+        </label>
+        <label>Port
+          <input id="hostPort" type="number" min="1" max="65535" step="1">
+        </label>
+      </div>
+      <p class="hint">Once the network is joined and a host is set here, the module
+        connects to it and sends the UART both ways; leave the address empty and
+        the module keeps running its own telnet server only. Clearing the field
+        turns the uplink off.</p>
+    </div>
+
+    <div class="card">
       <h2>Access point</h2>
       <p class="hint">Used while unconfigured, when a join attempt fails, and on
         demand while the boot button is held. The device is always reachable
@@ -872,6 +888,18 @@ function renderComms(s){
     ['Read only &middot; port ' + (s.telnetPortRo || 'off'),
      s.clientsRo ? s.clientsRo + ' connected' : 'none connected']
   ];
+  if (s.uplink) lines.push([
+    'Console-server host &middot; ' +
+      (s.uplink.configured ? esc(s.uplink.host) + ':' + s.uplink.port : 'off'),
+    s.uplink.open
+      ? 'connected &middot; &uarr; ' + human(s.uplink.tx) + ' sent, &darr; ' +
+        human(s.uplink.rx) + ' received' +
+        (s.uplink.queued ? ' &nbsp; <small>' + s.uplink.queued + ' B queued</small>' : '') +
+        (s.uplink.dropped ? ' &nbsp; <small>' + human(s.uplink.dropped) + ' dropped</small>' : '')
+      : s.uplink.configured
+        ? 'retrying every ' + Math.max(1, Math.round(s.uplink.retryIn / 1000)) + ' s'
+        : 'not configured'
+  ]);
   (s.sessions || []).forEach(c => lines.push([
     esc(c.ip) + (c.ro ? ' <span class="tag ro">read only</span>'
                       : ' <span class="tag rw">read/write</span>') +
@@ -905,6 +933,8 @@ function fillForms(s){
   $('#staTimeout').value = n.staTimeout;
   $('#telnetPort').value = n.telnetPort;
   $('#telnetPortRo').value = n.telnetPortRo || 0;
+  $('#hostHost').value = n.hostHost;
+  $('#hostPort').value = n.hostPort;
   $('#apSsid').value = n.apSsid;
   $('#apPass').value = '';
   $('#apPass').placeholder = n.apPassSet ? 'stored — type * to keep' : 'none set';
@@ -1018,6 +1048,8 @@ $('#btn-net').addEventListener('click', async () => {
     hostname:$('#hostname').value, staTimeout:$('#staTimeout').value,
     telnetPort:$('#telnetPort').value,
     telnetPortRo:$('#telnetPortRo').value,
+    hostHost:$('#hostHost').value,
+    hostPort:$('#hostPort').value,
     apSsid:$('#apSsid').value,
     apPass:$('#apOpen').checked ? '' : ($('#apPass').value || '*'),
     apChannel:$('#apChannel').value,

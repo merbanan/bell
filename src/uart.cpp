@@ -2,6 +2,7 @@
 #include "config.h"
 #include "log.h"
 #include "telnet.h"
+#include "uplink.h"
 
 static uint32_t s_rxBytes  = 0;
 static uint32_t s_txBytes  = 0;
@@ -66,8 +67,8 @@ void uartLoop() {
     static uint8_t buf[LOG_BATCH];
     uint32_t budget = LOG_BATCH;
 
-    // Do not pull more off the wire while a telnet peer is backed up; the
-    // hardware FIFO is only 1KB and the bridge cannot afford to spin.
+    // Do not pull more off the wire while a peer is backed up; the hardware FIFO
+    // is only 1KB and the bridge cannot afford to spin.
     if (!telnetAccepting()) return;
 
     while (budget && Serial.available() > 0) {
@@ -85,10 +86,11 @@ void uartLoop() {
                    (unsigned)s_rxOverruns);
         }
 
-        // The log takes the data first: whatever happens to the telnet peers
+        // The log takes the data first: whatever happens to the peers
         // afterwards, the byte stream is still retrievable from the web UI.
         logWrite(buf, (uint32_t)n, LOG_DIR_IN);      // the device spoke
 
+        uplinkSend(buf, (uint32_t)n);
         telnetBroadcast(buf, (uint32_t)n);
         budget -= n;
     }

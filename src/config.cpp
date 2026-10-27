@@ -51,6 +51,11 @@ void cfgDefaults() {
     g_cfg.apChannel = 0;
     g_cfg.apHidden  = false;
 
+    // No host configured means the uplink stays off: the module still runs its
+    // own telnet server and behaves exactly as it did before this existed.
+    strlcpy(g_cfg.hostHost, "", sizeof(g_cfg.hostHost));
+    g_cfg.hostPort = DEFAULT_HOST_PORT;
+
     g_cfg.baud    = 115200;
     g_cfg.bits    = 8;
     g_cfg.parity  = 'N';
@@ -147,6 +152,15 @@ void cfgLoad() {
         g_cfg.apHidden = a["hidden"] | false;
     }
 
+    // Written by firmware before the uplink existed: absent keys mean "not
+    // configured", which cfgDefaults() already left in place.
+    JsonObjectConst h = root["host"];
+    if (h) {
+        cp(h, "addr", g_cfg.hostHost, sizeof(g_cfg.hostHost));
+        int hp = h["port"] | 0;
+        if (hp >= 1 && hp <= 65535) g_cfg.hostPort = (uint16_t)hp;
+    }
+
     JsonObjectConst u = root["uart"];
     if (u) {
         if (u["baud"].is<unsigned long>())
@@ -207,6 +221,10 @@ bool cfgSave() {
     a["pass"]    = g_cfg.apPass;
     a["channel"] = g_cfg.apChannel;
     a["hidden"]  = g_cfg.apHidden;
+
+    JsonObject h = root["host"].to<JsonObject>();
+    h["addr"] = g_cfg.hostHost;
+    h["port"] = g_cfg.hostPort;
 
     JsonObject u = root["uart"].to<JsonObject>();
     u["baud"]        = g_cfg.baud;

@@ -217,6 +217,76 @@ int main() {
         expect("WILL ECHO answered DONT", r.reply, bytes({255, 254, 1}));
     }
 
+    // Client mode: the module answers the console-server host as a telnet
+    // client would - the host offers and asks, the module complies.
+    {
+        TelnetFilter f; f.begin(false, true);
+        expect("client WILL SGA", run(f, bytes({255, 251, 3})).reply, bytes({255, 253, 3}));
+        expect("client WILL ECHO", run(f, bytes({255, 251, 1})).reply, bytes({255, 253, 1}));
+        expect("client WILL NAWS", run(f, bytes({255, 251, 31})).reply, bytes({255, 254, 31}));
+        expect("client DO BINARY", run(f, bytes({255, 253, 0})).reply, bytes({255, 251, 0}));
+        if (!f.binary()) { printf("  FAIL client binary not latched\n"); g_fail++; }
+        expect("client DO SGA", run(f, bytes({255, 253, 3})).reply, bytes({255, 251, 3}));
+        expect("client DO ECHO", run(f, bytes({255, 253, 1})).reply, bytes({255, 252, 1}));
+        expect("client DONT BINARY", run(f, bytes({255, 254, 0})).reply, bytes({255, 252, 0}));
+        if (f.binary()) { printf("  FAIL client binary not cleared\n"); g_fail++; }
+        expect("client WONT SGA", run(f, bytes({255, 252, 3})).reply, bytes({255, 254, 3}));
+        expect("client payload untouched", run(f, "AT\r\n").payload, bytes({'A', 'T', 13, 10}));
+    }
+
+    // The module announces itself in an option-200 subnegotiation. The option
+    // byte is not payload, and the MAC must survive reads split anywhere.
+    {
+        TelnetFilter f; f.begin(false, true);
+        std::vector<uint8_t> mac = bytes({'A', 'A', ':', 'B', 'B', ':', 'C', 'C',
+                                          ':', 'D', 'D', ':', 'E', 'E', ':', 'F', 'F'});
+        std::vector<uint8_t> stream = bytes({255, 250, 200});
+        stream.insert(stream.end(), mac.begin(), mac.end());
+        stream.push_back(255); stream.push_back(240);
+        Result r = run(f, stream);
+        if (!f.macCaptured()) { printf("  FAIL MAC not captured\n"); g_fail++; }
+        else {
+            expect("MAC contents", std::vector<uint8_t>(f.macData(),
+                                                        f.macData() + f.macLength()), mac);
+            if (f.macLength() != 17) { printf("  FAIL MAC length %zu\n", (size_t)f.macLength()); g_fail++; }
+        }
+        expect("MAC subneg payload empty", r.payload, {});
+        expect("MAC subneg no reply", r.reply, {});
+        expect("payload after the MAC", run(f, "OK").payload, bytes({'O', 'K'}));
+
+        // Same stream split across three reads.
+        TelnetFilter g; g.begin(false, true);
+        Result r1 = run(g, std::vector<uint8_t>(stream.begin(), stream.begin() + 2));
+        Result r2 = run(g, std::vector<uint8_t>(stream.begin() + 2, stream.begin() + 8));
+        Result r3 = run(g, std::vector<uint8_t>(stream.begin() + 8, stream.end()));
+        if (!g.macCaptured()) { printf("  FAIL split MAC not captured\n"); g_fail++; }
+        else {
+            expect("split MAC contents",
+                   std::vector<uint8_t>(g.macData(), g.macData() + g.macLength()), mac);
+        }
+        expect("split MAC subneg payload", r3.payload, {});
+
+        // An unterminated subnegotiation must not swallow the stream for good:
+        // the filter gives up once the payload runs past 255 bytes.
+        TelnetFilter h; h.begin(false, true);
+        std::vector<uint8_t> open = bytes({255, 250, 200});
+        open.insert(open.end(), mac.begin(), mac.end());
+        for (int i = 0; i < 300; i++) open.push_back((uint8_t)'x');
+        run(h, open);
+        expect("unterminated MAC subneg gives up", run(h, "OK").payload, bytes({'O', 'K'}));
+    }
+
+    // Server mode must not mistake an option-200 payload for data, and must
+    // capture nothing from it.
+    {
+        TelnetFilter f; f.begin(false);
+        std::vector<uint8_t> stream = bytes({255, 250, 200});
+        for (int i = 0; i < 17; i++) stream.push_back((uint8_t)('A' + i));
+        stream.push_back(255); stream.push_back(240);
+        expect("server mode swallows a MAC subneg", run(f, stream).payload, {});
+        if (f.macCaptured()) { printf("  FAIL server mode captured a MAC\n"); g_fail++; }
+    }
+
     printf(g_fail ? "\n%d check(s) failed\n" : "\nall checks passed\n", g_fail);
     return g_fail ? 1 : 0;
 }

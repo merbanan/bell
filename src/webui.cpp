@@ -6,6 +6,7 @@
 #include "ota.h"
 #include "telnet.h"
 #include "uart.h"
+#include "uplink.h"
 #include "gpio.h"
 
 #include <ESP8266WebServer.h>
@@ -150,6 +151,8 @@ static void handleState() {
     out += ",\"apPassSet\":" + String(g_cfg.apPass[0] ? "true" : "false");
     out += ",\"apChannel\":" + String((uint32_t)g_cfg.apChannel);
     out += ",\"apHidden\":" + String(g_cfg.apHidden ? "true" : "false");
+    out += ",\"hostHost\":\"" + jsonEscape(String(g_cfg.hostHost)) + "\"";
+    out += ",\"hostPort\":" + String((uint32_t)g_cfg.hostPort);
     out += ",\"otaUrl\":\"" + jsonEscape(String(g_cfg.otaUrl)) + "\"";
     out += ",\"otaAuto\":" + String(g_cfg.otaAuto ? "true" : "false") + "}";
 
@@ -187,6 +190,8 @@ static void handleState() {
 
     out += ",\"sessions\":";
     telnetAppendJson(out);
+    out += ",\"uplink\":";
+    uplinkAppendJson(out);
     out += ",\"ota\":" + otaJson() + "}";
 
     noStore();
@@ -290,12 +295,22 @@ static void handleSaveNet() {
         if (portRo == port) { failJson("the read-only port must differ from the read/write one"); return; }
     }
 
+    // An empty field clears the host: without it the uplink stays off even while
+    // the station itself is joined.
+    String hostAddr = argStr("hostHost", g_cfg.hostHost);
+    hostAddr.trim();
+    if (hostAddr.length() >= MAX_HOST_ADDR) { failJson("host address too long"); return; }
+    long hostPort = argLong("hostPort", g_cfg.hostPort, 1, 65535);
+    if (hostPort == WEB_PORT) { failJson("the web interface already uses port 80"); return; }
+
     uint8_t  timeout = (uint8_t)argLong("staTimeout", g_cfg.staTimeout, 3, 120);
     uint8_t  channel = (uint8_t)argLong("apChannel", g_cfg.apChannel, 0, 13);
     bool     hidden  = s_server.hasArg("apHidden")  ? argOn("apHidden")  : g_cfg.apHidden;
     bool     autoOta = s_server.hasArg("otaAuto")   ? argOn("otaAuto")   : g_cfg.otaAuto;
 
     uint16_t oldPort = g_cfg.telnetPort, oldPortRo = g_cfg.telnetPortRo;
+    String oldHost   = String(g_cfg.hostHost);
+    uint16_t oldHostPort = g_cfg.hostPort;
 
     strlcpy(g_cfg.staSsid, ssid.c_str(), sizeof(g_cfg.staSsid));
     if (!keepPass) strlcpy(g_cfg.staPass, pass.c_str(), sizeof(g_cfg.staPass));
@@ -309,6 +324,8 @@ static void handleSaveNet() {
     g_cfg.otaAuto   = autoOta;
     g_cfg.telnetPort = (uint16_t)port;
     g_cfg.telnetPortRo = (uint16_t)portRo;
+    strlcpy(g_cfg.hostHost, hostAddr.c_str(), sizeof(g_cfg.hostHost));
+    g_cfg.hostPort = (uint16_t)hostPort;
 
     if (!cfgSave()) { failJson("could not write config.json"); return; }
 
@@ -320,6 +337,15 @@ static void handleSaveNet() {
         telnetBegin();
         SYSLOG("[cfg] telnet ports moved to %u (read/write) and %u (read only)",
                (unsigned)g_cfg.telnetPort, (unsigned)wasRo);
+    }
+
+    if (String(g_cfg.hostHost) != oldHost || g_cfg.hostPort != oldHostPort) {
+        // The live connection belongs to the old host; drop it so the next
+        // attempt goes to the one that is configured now.
+        uplinkReset();
+        SYSLOG("[cfg] host is now %s:%u%s",
+               g_cfg.hostHost, (unsigned)g_cfg.hostPort,
+               g_cfg.hostHost[0] ? "" : " (uplink off)");
     }
 
     SYSLOG("[cfg] saved: join \"%s\", ap \"%s\"", g_cfg.staSsid, g_cfg.apSsid);

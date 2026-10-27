@@ -143,11 +143,13 @@ static void pumpTx(TClient *c) {
 
         // A short write can stop part way through an escaped pair, so count how
         // many queued bytes the bytes actually written account for rather than
-        // assuming one byte in, one byte out.
+        // assuming one byte in, one byte out. An IAC that lost its second half
+        // is left in the ring for the next pass, which re-encodes it complete.
         uint16_t used = 0, acc = 0;
-        while (used < n && acc < w) {
-            acc++;
-            if (c->tx[c->tail + used] == telnet::IAC) acc++;
+        while (used < n) {
+            uint16_t need = (c->tx[c->tail + used] == telnet::IAC) ? 2 : 1;
+            if (acc + need > w) break;
+            acc += need;
             used++;
         }
 

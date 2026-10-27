@@ -20,6 +20,7 @@
 #include "ota.h"
 #include "telnet.h"
 #include "uart.h"
+#include "uplink.h"
 #include "gpio.h"
 #include "webui.h"
 
@@ -192,6 +193,7 @@ void setup() {
 
     uartSetup();
     webBegin();
+    uplinkBegin();
 
     SYSLOG("[sys] %s ready - telnet on port %d, web on port %d",
            FW_VERSION, (int)g_cfg.telnetPort, (int)WEB_PORT);
@@ -206,6 +208,7 @@ void setup() {
 
 void loop() {
     netLoop();
+    uplinkLoop();
     uartLoop();
     telnetLoop();
     webLoop();

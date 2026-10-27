@@ -12,6 +12,7 @@ enum : uint8_t {
     OPT_SGA    = 3,
     OPT_TTYPE  = 24,
     OPT_NAWS   = 31,
+    OPT_MAC    = 200,
 
     IAC  = 255,
     DONT = 254,
@@ -23,6 +24,10 @@ enum : uint8_t {
 };
 }
 
+// How much of an option-200 payload is retained. "AA:BB:CC:DD:EE:FF" is 17
+// bytes; a little slack covers a sloppy peer.
+#define TF_MAC_CAP 24
+
 // Turns a raw telnet byte stream into the payload the bridge forwards, and
 // collects the option replies the far end expects. Kept free of any WiFi or
 // Arduino dependency so the negotiation can be exercised on a workstation -
@@ -30,16 +35,31 @@ enum : uint8_t {
 // one thing this firmware must never do.
 class TelnetFilter {
 public:
-    void begin(bool crlfToCrlf) {
+    // client: this filter belongs to the module's uplink, which acts as a
+    // telnet client toward the console-server host. The negotiation answers
+    // flip accordingly: the host offers and asks, the module complies.
+    void begin(bool crlfToCrlf, bool client = false) {
         _crlf    = crlfToCrlf;
+        _client  = client;
         _state   = DATA;
         _pending = 0;
         _binary  = false;
         _subLen  = 0;
+        _subOpt  = 0;
+        _subOptSeen = false;
+        _macLen  = 0;
+        _macReady = false;
     }
 
     void setCrlfToCrlf(bool on) { _crlf = on; }
     bool binary() const { return _binary; }
+    bool client() const { return _client; }
+
+    // Identification the module sent in an option-200 subnegotiation: complete
+    // only once its terminator has been seen.
+    bool macCaptured() const { return _macReady; }
+    uint8_t macLength() const { return _macLen; }
+    const uint8_t *macData() const { return _macBuf; }
 
     // The output direction: a 0xFF in the payload has to reach the wire as IAC
     // IAC, because the far end would otherwise read it as the start of a
@@ -88,6 +108,7 @@ public:
                         _state = OPTION;
                     } else if (b == telnet::SB) {
                         _state = SUBNEG;
+                        _subOptSeen = false;
                     } else {
                         // Not a command, so this 0xFF was never an escape: it is
                         // a data byte the peer failed to double. Pass both bytes
@@ -107,6 +128,20 @@ public:
 
                 case SUBNEG:
                     if (b == telnet::IAC) { _state = SUBNEG_IAC; _subLen = 0; }
+                    else if (!_subOptSeen) {
+                        // RFC 854 puts the option number first; everything after
+                        // it belongs to the option. The option byte itself is not
+                        // payload, whether it is captured or swallowed.
+                        _subOpt    = b;
+                        _subOptSeen = true;
+                        // A peer that opens a subnegotiation and never closes it
+                        // would otherwise swallow the payload for good.
+                        if (++_subLen > 255) _state = DATA;
+                    } else if (_client && _subOpt == telnet::OPT_MAC &&
+                               _macLen < TF_MAC_CAP) {
+                        _macBuf[_macLen++] = b;
+                        if (++_subLen > 255) _state = DATA;
+                    }
                     // A peer that opens a subnegotiation and never closes it
                     // would otherwise swallow the payload for good.
                     else if (++_subLen > 255) _state = DATA;
@@ -114,6 +149,8 @@ public:
 
                 case SUBNEG_IAC:
                     _state = (b == telnet::SE) ? DATA : SUBNEG;   // TTYPE, NAWS
+                    if (b == telnet::SE && _client && _subOpt == telnet::OPT_MAC &&
+                        _macLen) _macReady = true;
                     break;
             }
         }
@@ -141,6 +178,46 @@ private:
     }
 
     void negotiate(uint8_t opt, uint8_t *reply, size_t cap, size_t &len) {
+        // A module talking to the console-server host plays the client role: it
+        // complies with what the host offers and asks, and offers nothing of
+        // its own beyond taking the eighth bit as it comes.
+        if (_client) {
+            switch (_pending) {
+                case telnet::DO:
+                    if (opt == telnet::OPT_BINARY) {
+                        _binary = true;
+                        cmd(reply, cap, len, telnet::WILL, telnet::OPT_BINARY);
+                    } else if (opt == telnet::OPT_SGA) {
+                        cmd(reply, cap, len, telnet::WILL, telnet::OPT_SGA);
+                    } else if (opt == telnet::OPT_ECHO) {
+                        // Echo is the host's job; the module never echoes back.
+                        cmd(reply, cap, len, telnet::WONT, telnet::OPT_ECHO);
+                    } else {
+                        cmd(reply, cap, len, telnet::WONT, opt);
+                    }
+                    break;
+
+                case telnet::WILL:
+                    if (opt == telnet::OPT_BINARY || opt == telnet::OPT_SGA ||
+                        opt == telnet::OPT_ECHO) {
+                        cmd(reply, cap, len, telnet::DO, opt);
+                    } else {
+                        cmd(reply, cap, len, telnet::DONT, opt);
+                    }
+                    break;
+
+                case telnet::WONT:
+                    cmd(reply, cap, len, telnet::DONT, opt);
+                    break;
+
+                default:   // DONT
+                    if (opt == telnet::OPT_BINARY) _binary = false;
+                    cmd(reply, cap, len, telnet::WONT, opt);
+                    break;
+            }
+            return;
+        }
+
         switch (_pending) {
             case telnet::DO:
                 // Suppress go-ahead, pass binary data through, and take echo
@@ -176,7 +253,13 @@ private:
 
     State   _state   = DATA;
     uint8_t _pending = 0;
-    uint8_t _subLen  = 0;
+    uint16_t _subLen = 0;
+    uint8_t _subOpt  = 0;
+    bool    _subOptSeen = false;
     bool    _crlf    = false;
+    bool    _client  = false;
     bool    _binary  = false;
+    bool    _macReady = false;
+    uint8_t _macLen  = 0;
+    uint8_t _macBuf[TF_MAC_CAP];
 };
