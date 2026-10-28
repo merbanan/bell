@@ -1,10 +1,11 @@
 host:
   modulePort: 12345
   bridgeBase: 12360
-  webPort: 8080
+  webPort: 8090
+  webBind: 192.168.10.237
   storage: ./logs
 modules:
-- mac: 02:00:00:00:00:01
-  name: bell-smoke
+- mac: 68:C6:3A:D6:F6:5C
+  name: Aura-E655
   rw: 12360
   ro: 12361

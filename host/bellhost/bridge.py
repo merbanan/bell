@@ -19,6 +19,8 @@ from . import config, registry as reg, logs as logs_mod, telnet
 
 QUEUE_CAP = 4096          # per-direction byte buffer, drop-oldest like the module
 DROP_LOG_MS = 5000
+PING_INTERVAL = 30        # how often an idle peer is probed
+PING_FRAME = b"\xff\xf1"  # telnet IAC NOP: eaten by the module's filter
 
 
 def _now_ms() -> int:
@@ -44,6 +46,7 @@ class Session:
         if self.filter.mode == "server":
             self.filter.mark_greeting()
             writer.write(telnet.GREETING)
+        self.last_activity = _now_ms()
 
     def queue_out(self, data: bytes) -> None:
         """Outbound bytes for this peer, drop-oldest when the peer is slow."""
@@ -78,6 +81,7 @@ class Session:
                 try:
                     self.writer.write(chunk)
                     await self.writer.drain()
+                    self.last_activity = _now_ms()
                 except Exception:
                     break
             else:
@@ -91,6 +95,7 @@ class Session:
                 chunk = await self.reader.read(512)
                 if not chunk:
                     break
+                self.last_activity = _now_ms()
                 self.on_bytes(chunk)
         except Exception:
             pass
@@ -101,9 +106,30 @@ class Session:
             pass
         self._gone()
 
+    async def ping_loop(self) -> None:
+        """Probes an idle peer: a socket that quietly died never gets noticed
+        otherwise, so the host would keep showing a module that is not there."""
+        while self.alive:
+            await asyncio.sleep(PING_INTERVAL)
+            if not self.alive:
+                break
+            now = _now_ms()
+            if now - self.last_activity < PING_INTERVAL * 1000:
+                continue
+            self.last_activity = now
+            try:
+                self.writer.write(PING_FRAME)
+                await self.writer.drain()
+            except Exception:
+                self.alive = False
+                break
+        if not self.alive:
+            self._gone()
+
     def start(self) -> None:
         asyncio.create_task(self.pump())
         asyncio.create_task(self.read_loop())
+        asyncio.create_task(self.ping_loop())
 
     def on_bytes(self, chunk: bytes) -> None:
         raise NotImplementedError

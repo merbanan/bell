@@ -47,7 +47,7 @@ void cfgDefaults() {
 
     snprintf(g_cfg.apSsid, sizeof(g_cfg.apSsid), "uart-server-%02X%02X",
              ESP.getChipId() >> 8, ESP.getChipId() & 0xff);
-    strlcpy(g_cfg.apPass, "uartserver", sizeof(g_cfg.apPass));
+    strlcpy(g_cfg.apPass, "", sizeof(g_cfg.apPass));
     g_cfg.apChannel = 0;
     g_cfg.apHidden  = false;
 
@@ -158,7 +158,8 @@ void cfgLoad() {
     if (h) {
         cp(h, "addr", g_cfg.hostHost, sizeof(g_cfg.hostHost));
         int hp = h["port"] | 0;
-        if (hp >= 1 && hp <= 65535) g_cfg.hostPort = (uint16_t)hp;
+        // 0 means "no uplink"; anything else is a port the module connects to.
+        if (hp >= 0 && hp <= 65535) g_cfg.hostPort = (uint16_t)hp;
     }
 
     JsonObjectConst u = root["uart"];

@@ -18,7 +18,7 @@ async def main(cfg_path: str) -> None:
     await br.start()
     runner = aiohttp_web.AppRunner(app)
     await runner.setup()
-    site = aiohttp_web.TCPSite(runner, host="0.0.0.0", port=cfg.web_port)
+    site = aiohttp_web.TCPSite(runner, host=cfg.web_bind, port=cfg.web_port)
     await site.start()
     print(f"bell host up: module port {cfg.module_port}, "
           f"web port {cfg.web_port}")

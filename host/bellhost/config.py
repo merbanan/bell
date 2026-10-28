@@ -16,7 +16,8 @@ import yaml
 
 DEFAULT_MODULE_PORT = 12345
 DEFAULT_BRIDGE_BASE = 12360
-DEFAULT_WEB_PORT = 8080
+DEFAULT_WEB_PORT = 8090
+DEFAULT_WEB_BIND = "0.0.0.0"
 DEFAULT_STORAGE = "./logs"
 
 
@@ -43,6 +44,7 @@ class HostConfig:
     module_port: int = DEFAULT_MODULE_PORT
     bridge_base: int = DEFAULT_BRIDGE_BASE
     web_port: int = DEFAULT_WEB_PORT
+    web_bind: str = DEFAULT_WEB_BIND
     storage: str = DEFAULT_STORAGE
     modules: List[dict] = field(default_factory=list)
 
@@ -69,6 +71,7 @@ def load(path: str = "config.yaml") -> HostConfig:
     cfg.module_port = _port(h.get("modulePort")) or DEFAULT_MODULE_PORT
     cfg.bridge_base = _port(h.get("bridgeBase")) or DEFAULT_BRIDGE_BASE
     cfg.web_port = _port(h.get("webPort")) or DEFAULT_WEB_PORT
+    cfg.web_bind = str(h.get("webBind") or DEFAULT_WEB_BIND)
     cfg.storage = h.get("storage") or DEFAULT_STORAGE
 
     mods = doc.get("modules") or []
@@ -94,6 +97,7 @@ def save(cfg: HostConfig) -> None:
         "modulePort": cfg.module_port,
         "bridgeBase": cfg.bridge_base,
         "webPort": cfg.web_port,
+        "webBind": cfg.web_bind,
         "storage": cfg.storage,
     }, "modules": list(cfg.modules)}
     with open(cfg.path, "w", encoding="utf-8") as fh:

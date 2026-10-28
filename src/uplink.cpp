@@ -15,6 +15,7 @@
 #define UL_FIRST_DELAY 1500
 #define UL_DNS_TIMEOUT_MS 2000
 #define UL_STALL_MS 30000              // a host that cannot take bytes is closed
+#define UL_HEARTBEAT_MS 30000          // an idle session still needs to be checked
 #define UL_DROP_LOG_MS 5000            // rate limit for "ring full" complaints
 
 // One heap block: rx | out | reply. rx is what comes off the host, out has room
@@ -48,6 +49,7 @@ static uint32_t s_backoff = UL_RETRY_MIN;
 static uint32_t s_fails   = 0;          // attempts since the last success
 
 static uint32_t s_stallAt = 0;          // last time anything moved on the wire
+static uint32_t s_heartbeatAt = 0;      // last time a heartbeat was sent
 static uint32_t s_dropped = 0;          // UART bytes thrown away while offline
 static uint32_t s_dropLoggedAt = 0;
 static uint32_t s_rxTotal = 0;
@@ -57,6 +59,10 @@ static uint32_t s_txTotal = 0;
 // as an option-200 subnegotiation. Built once per session and written out in
 // pieces, so a socket that cannot take it whole does not lose any of it.
 static uint8_t s_greet[24];
+
+// A two-byte telnet frame that the host's filter eats and never reaches the
+// UART: a heartbeat keeps an idle session alive without touching the device.
+static const uint8_t s_heartbeat[] = { telnet::IAC, 0xF1 };
 static uint8_t s_greetLen = 0;
 static uint8_t s_greetPos = 0;
 static char    s_mac[18];
@@ -224,6 +230,18 @@ void uplinkLoop() {
     greetRemainder();
     pumpTx();
     pumpRx();
+
+    // A session that is idle but still alive needs a heartbeat too: without
+    // one a host that quietly closed the socket would never be noticed, and
+    // the module would keep reporting an uplink that is not there.
+    if ((uint32_t)(millis() - s_heartbeatAt) > UL_HEARTBEAT_MS) {
+        s_heartbeatAt = millis();
+        if (!s_sock.write(s_heartbeat, sizeof(s_heartbeat))) {
+            closeSession("the host stopped answering");
+            return;
+        }
+        s_stallAt = millis();
+    }
 
     if (s_queued && (uint32_t)(millis() - s_stallAt) > UL_STALL_MS) {
         closeSession("the host stopped taking bytes");

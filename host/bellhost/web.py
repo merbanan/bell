@@ -9,6 +9,10 @@ from aiohttp import web
 
 from . import config, registry as reg, logs as logs_mod, bridge as bridge_mod
 
+# The module's access point address is fixed in the firmware, so the host
+# always has one address that works even when the station interface is down.
+MODULE_AP_IP = "192.168.4.1"
+
 
 class Web:
     """aiohttp app for the host's web UI."""
@@ -61,6 +65,55 @@ class Web:
         pend = [{"mac": mac, "connected": info["connected"]}
                 for mac, info in sorted(self.registry.pending.items())]
         return web.json_response({"modules": mods, "pending": pend})
+
+    async def api_pending(self, request):
+        mac = request.match_info["mac"].strip().upper()
+        if mac not in self.registry.pending:
+            return web.json_response({"ok": False, "error": "not pending"},
+                                     status=404)
+        info = self.registry.pending[mac]
+        connected = info["connected"] and mac in self.bridge.pending_sessions
+        # Module detail comes from the module's own web UI: the station
+        # interface first, then the access point.
+        async with aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=4)) as cs:
+            async def fetch(ip: str):
+                r = await cs.get(f"http://{ip}/api/state")
+                return await r.json()
+            try:
+                ap_state = await fetch(MODULE_AP_IP)
+            except Exception as e:
+                print("AP fetch:", type(e).__name__, e, file=__import__("sys").stderr)
+                ap_state = None
+            sta_ip = str(ap_state.get("sta", "")) if ap_state else ""
+            if sta_ip:
+                try:
+                    detail = await fetch(sta_ip)
+                except Exception as e:
+                    print("STA fetch:", type(e).__name__, e, file=__import__("sys").stderr)
+                    detail = ap_state
+            else:
+                detail = ap_state
+            gpio = None
+            if detail:
+                try:
+                    gr = await cs.get(
+                        f"http://{sta_ip or MODULE_AP_IP}/api/gpio")
+                    gpio = await gr.json()
+                except Exception as e:
+                    print("GPIO fetch:", type(e).__name__, e, file=__import__("sys").stderr)
+                    gpio = None
+        print("pending detail:", ap_state is not None, sta_ip,
+              detail is not None, file=__import__("sys").stderr)
+        if not detail:
+            return web.json_response({"mac": mac, "connected": connected,
+                                      "reachable": False})
+        out = {"mac": mac, "connected": connected,
+               "reachable": True, "ip": sta_ip or MODULE_AP_IP}
+        out.update(detail)
+        if gpio is not None:
+            out["gpio"] = gpio
+        return web.json_response(out)
 
     async def api_onboard(self, request):
         body = await request.json()
@@ -131,6 +184,7 @@ def build_app(bridge, cfg, registry, logs) -> web.Application:
     app.router.add_get("/logs", w.logs_page)
     app.router.add_get("/onboard", w.onboard_page)
     app.router.add_get("/api/state", w.api_state)
+    app.router.add_get("/api/pending/{mac}", w.api_pending)
     app.router.add_post("/api/onboard", w.api_onboard)
     app.router.add_get("/api/logs", w.api_logs)
     app.router.add_get("/api/logs/{slot}/{day}", w.log_file)
@@ -159,8 +213,10 @@ table{border-collapse:collapse;margin-top:12px}
 async function poll(){
   const s = await (await fetch('/api/state')).json();
   const pend = document.getElementById('pend');
-  pend.textContent = s.pending.length
-    ? 'pending: ' + s.pending.map(p => p.mac + (p.connected ? ' (online)' : ' (offline)')).join(', ')
+  pend.innerHTML = s.pending.length
+    ? 'pending: ' + s.pending.map(p =>
+        `<a href="/onboard?mac=${encodeURIComponent(p.mac)}">`
+        + `${p.mac}${p.connected ? ' (online)' : ' (offline)'}</a>`).join(', ')
     : '';
   const t = document.getElementById('t');
   while (t.rows.length > 1) t.deleteRow(1);
@@ -214,36 +270,63 @@ body{font:14px monospace;background:#111;color:#ddd;margin:16px}
 input{background:#222;color:#ddd;border:1px solid #444;padding:4px;margin-right:6px}
 button{background:#333;color:#ddd;border:1px solid #555;padding:4px 10px}
 .ok{color:#8d8}.err{color:#d88}
+table{border-collapse:collapse;margin-top:12px}
+td{padding:4px 10px;border-bottom:1px solid #333;text-align:left}
+a{color:#8cf}
 </style></head><body>
 <h1>onboarding</h1>
+<p><a href="/">dashboard</a></p>
 <div id="out"></div>
 <script>
+const want = new URLSearchParams(location.search).get('mac');
 async function load(){
-  const s = await (await fetch('/api/state')).json();
+  const r = await fetch('/api/pending/' + encodeURIComponent(want));
+  const d = await r.json();
   const out = document.getElementById('out');
-  out.innerHTML = '';
-  for (const p of s.pending) {
-    if (!p.connected) continue;
-    const d = document.createElement('div');
-    d.innerHTML = `<span>${p.mac}</span> `
-      + `<input id="n-${p.mac.replace(/:/g,'')}" size="20" placeholder="name"> `
-      + `<button onclick="assign('${p.mac}')">assign</button>`;
-    out.appendChild(d);
+  if (!d.ok || !d.reachable) {
+    out.innerHTML = `<p class="${d.connected ? 'ok' : 'err'}">`
+      + `${want}: ${d.connected ? 'connected, ' : 'offline, '}`
+      + `${d.reachable ? '' : 'module web unreachable'}</p>`;
+    return;
   }
-  if (!out.children.length) out.innerHTML = '<p>no pending modules</p>';
+  const gpio = d.gpio || {available: [], all: []};
+  const rows = [];
+  const add = (k, v) => rows.push(`<tr><td>${k}</td><td>${v}</td></tr>`);
+  add('fw', d.fw);
+  add('mode', d.mode);
+  add('ap ip', d.ap);
+  add('sta ip', d.sta);
+  add('ssid', d.ssid);
+  add('rssi', d.rssi + ' dBm');
+  add('hostname', d.hostname);
+  add('telnet rw', d.telnetPort);
+  add('telnet ro', d.telnetPortRo);
+  add('sta ssid', d.net.staSsid);
+  add('sta pass', d.net.staPassSet ? 'set' : 'not set');
+  add('ap ssid', d.net.apSsid);
+  add('ap pass', d.net.apPassSet ? 'set' : 'not set');
+  add('ap channel', d.net.apChannel);
+  add('ap hidden', d.net.apHidden);
+  add('host', d.net.hostHost + ':' + d.net.hostPort);
+  add('uplink', d.uplink.open ? 'open' : 'closed');
+  add('uart', `${d.uart.baud} ${d.uart.bits}${d.uart.parity}${d.uart.stops}`);
+  add('uart pins', d.uart.swapPins ? 'swapped' : 'standard');
+  add('gpio', gpio.available.join(', ') || 'none');
+  out.innerHTML = `<table>${rows.join('')}</table>`
+    + `<p><input id="name" size="20" placeholder="slot name"> `
+    + `<button onclick="assign()">assign</button></p>`;
 }
-async function assign(mac){
-  const n = document.getElementById('n-' + mac.replace(/:/g,''));
+async function assign(){
+  const n = document.getElementById('name');
   const r = await fetch('/api/onboard', {method:'POST',
     headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({mac: mac, name: n.value})});
+    body: JSON.stringify({mac: want, name: n.value})});
   const j = await r.json();
   const s = document.createElement('p');
   s.className = j.ok ? 'ok' : 'err';
-  s.textContent = j.ok ? `${mac} assigned as ${j.slot} (rw ${j.rw}, ro ${j.ro})`
+  s.textContent = j.ok ? `${want} assigned as ${j.slot} (rw ${j.rw}, ro ${j.ro})`
                        : j.error;
   document.body.appendChild(s);
-  load();
 }
 load();
 </script></body></html>"""

@@ -300,8 +300,14 @@ static void handleSaveNet() {
     String hostAddr = argStr("hostHost", g_cfg.hostHost);
     hostAddr.trim();
     if (hostAddr.length() >= MAX_HOST_ADDR) { failJson("host address too long"); return; }
-    long hostPort = argLong("hostPort", g_cfg.hostPort, 1, 65535);
+    long hostPort = argLong("hostPort", g_cfg.hostPort, 0, 65535);
     if (hostPort == WEB_PORT) { failJson("the web interface already uses port 80"); return; }
+    if (!hostAddr.length() && hostPort != 0) {
+        // A host port with no address is not a working uplink: without an
+        // address the module cannot reach anyone. Refuse rather than save.
+        failJson("host address missing");
+        return;
+    }
 
     uint8_t  timeout = (uint8_t)argLong("staTimeout", g_cfg.staTimeout, 3, 120);
     uint8_t  channel = (uint8_t)argLong("apChannel", g_cfg.apChannel, 0, 13);
