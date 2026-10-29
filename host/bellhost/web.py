@@ -644,7 +644,9 @@ async function loadModules(){
       + `<p><button onclick="saveNet('${m.slot}')">save net</button> `
       + `<button onclick="saveUart('${m.slot}')">save uart</button> `
       + `<button onclick="reboot('${m.slot}')">reboot</button> `
-      + `<span id="msg_${m.slot}"></span></p>`;
+      + `<span id="msg_${m.slot}"></span></p>`
+      + `<p><a href="/live/${encodeURIComponent(m.slot)}">live</a> `
+      + `<a href="/logs?slot=${encodeURIComponent(m.slot)}">logs</a></p>`;
     out.appendChild(box);
     if (m.online) {
       const d = await (await fetch(`/api/module/${encodeURIComponent(m.slot)}/state`)).json();
