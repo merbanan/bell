@@ -283,24 +283,31 @@ class Web:
                                      status=503)
         # The station address works when the module is on the LAN; the access
         # point address is the fallback that always answers.
+        sta_ip = s._peer()
         async with aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=6)) as cs:
             async def post(ip: str):
                 r = await cs.post(f"http://{ip}/api/{path}",
                                   data=await request.post())
                 return await r.json()
+            out = None
             try:
-                ap_state = await cs.get(f"http://{MODULE_AP_IP}/api/state")
-                ap_state = await ap_state.json()
+                out = await post(sta_ip)
             except Exception:
-                ap_state = None
-            sta_ip = str(ap_state.get("sta", "")) if ap_state else ""
-            try:
-                out = await post(sta_ip) if sta_ip else await post(MODULE_AP_IP)
-            except Exception as e:
-                return web.json_response(
-                    {"ok": False, "error": f"module unreachable ({e})"},
-                    status=503)
+                pass
+            if out is None:
+                try:
+                    ap_state = await cs.get(f"http://{MODULE_AP_IP}/api/state")
+                    ap_state = await ap_state.json()
+                except Exception:
+                    ap_state = None
+                sta_ip = str(ap_state.get("sta", "")) if ap_state else ""
+                try:
+                    out = await post(sta_ip if sta_ip else MODULE_AP_IP)
+                except Exception as e:
+                    return web.json_response(
+                        {"ok": False, "error": f"module unreachable ({e})"},
+                        status=503)
         return web.json_response(out)
 
     async def log_file(self, request):
