@@ -71,6 +71,16 @@ class Session:
     def slot_name(self) -> str:
         raise NotImplementedError
 
+    def _peer(self) -> str:
+        """The peer IP, or '?' when the socket has already gone away."""
+        try:
+            info = self.writer.get_extra_info("peername")
+            if isinstance(info, tuple):
+                return info[0]
+            return str(info) if info else "?"
+        except Exception:
+            return "?"
+
     async def pump(self) -> None:
         """Moves the outbound buffer onto the socket, backing off when the peer
         cannot keep up."""
@@ -245,15 +255,6 @@ class OperatorSession(Session):
     def slot_name(self) -> str:
         return self.module.slot
 
-    def _peer(self) -> str:
-        try:
-            info = self.writer.get_extra_info("peername")
-            if isinstance(info, tuple):
-                return info[0]
-            return str(info) if info else "?"
-        except Exception:
-            return "?"
-
     def on_bytes(self, chunk: bytes) -> None:
         payload, reply = self.filter.feed(chunk)
         if reply and self.alive:
@@ -371,6 +372,8 @@ class Bridge:
                 s.module.ops.remove(s)
             except ValueError:
                 pass
+            if s.rw:
+                s.module.claimed = False
             self.logs.event(s.module.slot,
                             f"operator {s._peer()} detached")
 

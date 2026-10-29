@@ -84,6 +84,8 @@ class Web:
                                      status=404)
         info = self.registry.pending[mac]
         connected = info["connected"] and mac in self.bridge.pending_sessions
+        p = self.bridge.pending_sessions.get(mac)
+        sta_ip = p._peer() if p is not None else ""
         # Module detail comes from the module's own web UI: the station
         # interface first, then the access point.
         async with aiohttp.ClientSession(
@@ -91,18 +93,23 @@ class Web:
             async def fetch(ip: str):
                 r = await cs.get(f"http://{ip}/api/state")
                 return await r.json()
+            detail = None
             try:
-                ap_state = await fetch(MODULE_AP_IP)
+                detail = await fetch(sta_ip)
             except Exception:
-                ap_state = None
-            sta_ip = str(ap_state.get("sta", "")) if ap_state else ""
-            if sta_ip:
+                pass
+            if detail is None:
                 try:
-                    detail = await fetch(sta_ip)
+                    ap_state = await fetch(MODULE_AP_IP)
                 except Exception:
-                    detail = ap_state
-            else:
+                    ap_state = None
+                sta_ip = str(ap_state.get("sta", "")) if ap_state else ""
                 detail = ap_state
+                if sta_ip:
+                    try:
+                        detail = await fetch(sta_ip)
+                    except Exception:
+                        detail = ap_state
             gpio = None
             if detail:
                 try:
@@ -231,23 +238,30 @@ class Web:
             return web.json_response({"ok": False, "error": "module offline"},
                                      status=503)
         mac = m.entry["mac"]
+        sta_ip = s._peer()
         # Reach the module on its station address first, then its access point.
         async with aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=4)) as cs:
             async def fetch(ip: str):
                 r = await cs.get(f"http://{ip}/api/state")
                 return await r.json()
+            detail = None
             try:
-                ap_state = await fetch(MODULE_AP_IP)
+                detail = await fetch(sta_ip)
             except Exception:
-                ap_state = None
-            sta_ip = str(ap_state.get("sta", "")) if ap_state else ""
-            detail = ap_state
-            if sta_ip:
+                pass
+            if detail is None:
                 try:
-                    detail = await fetch(sta_ip)
+                    ap_state = await fetch(MODULE_AP_IP)
                 except Exception:
-                    detail = ap_state
+                    ap_state = None
+                sta_ip = str(ap_state.get("sta", "")) if ap_state else ""
+                detail = ap_state
+                if sta_ip:
+                    try:
+                        detail = await fetch(sta_ip)
+                    except Exception:
+                        detail = ap_state
         if detail is None:
             return web.json_response(
                 {"ok": False, "error": "module unreachable"}, status=503)
@@ -294,6 +308,8 @@ class Web:
         day = request.match_info["day"]
         if "/" in slot or "/" in day or ".." in slot or ".." in day:
             return web.Response(status=400)
+        if day.endswith(".log"):
+            day = day[:-4]                  # the page links already carry .log
         path = os.path.join(config.storage_dir(self.cfg), slot, f"{day}.log")
         try:
             with open(path, "rb") as fh:
