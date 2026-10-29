@@ -198,6 +198,7 @@ class Web:
             if p != cfg.bridge_base:
                 cfg.bridge_base = p
                 changed.append("bridgeBase")
+                restart.append("bridge port base")
         wp = body.get("webPort")
         if wp is not None:
             p = int(wp)
