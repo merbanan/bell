@@ -82,15 +82,13 @@ class Web:
                 return await r.json()
             try:
                 ap_state = await fetch(MODULE_AP_IP)
-            except Exception as e:
-                print("AP fetch:", type(e).__name__, e, file=__import__("sys").stderr)
+            except Exception:
                 ap_state = None
             sta_ip = str(ap_state.get("sta", "")) if ap_state else ""
             if sta_ip:
                 try:
                     detail = await fetch(sta_ip)
-                except Exception as e:
-                    print("STA fetch:", type(e).__name__, e, file=__import__("sys").stderr)
+                except Exception:
                     detail = ap_state
             else:
                 detail = ap_state
@@ -100,11 +98,8 @@ class Web:
                     gr = await cs.get(
                         f"http://{sta_ip or MODULE_AP_IP}/api/gpio")
                     gpio = await gr.json()
-                except Exception as e:
-                    print("GPIO fetch:", type(e).__name__, e, file=__import__("sys").stderr)
+                except Exception:
                     gpio = None
-        print("pending detail:", ap_state is not None, sta_ip,
-              detail is not None, file=__import__("sys").stderr)
         if not detail:
             return web.json_response({"mac": mac, "connected": connected,
                                       "reachable": False})

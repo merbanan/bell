@@ -16,3 +16,6 @@ firmware.bin
 # OS cruft
 .DS_Store
 Thumbs.db
+# Runtime output
+__pycache__/
+logs/
