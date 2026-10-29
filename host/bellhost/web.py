@@ -513,8 +513,10 @@ async function assign(){
     body: JSON.stringify({mac: want, name: n.value})});
   const j = await r.json();
   msg.className = j.ok ? 'ok' : 'err';
-  msg.textContent = j.ok ? `${want} assigned as ${j.slot} (rw ${j.rw}, ro ${j.ro})`
-                         : j.error;
+  msg.innerHTML = j.ok ? `${want} assigned as ${j.slot} (rw ${j.rw}, ro ${j.ro}) `
+    + `<a href="/live/${encodeURIComponent(j.slot)}">live</a> `
+    + `<a href="/settings#${encodeURIComponent(j.slot)}">settings</a>`
+                       : j.error;
 }
 load();
 </script></body></html>"""
