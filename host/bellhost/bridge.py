@@ -336,6 +336,7 @@ class Bridge:
         self.modules: Dict[str, Module] = {}
         self.pending_sessions: Dict[str, "ModuleSession"] = {}
         self.servers: Dict[str, object] = {}
+        self.module_server = None
         self.web = None
         for entry in cfg.modules:
             self.slot_module(entry["name"])
@@ -391,8 +392,17 @@ class Bridge:
         ModuleSession(reader, writer, self).start()
 
     async def start(self) -> None:
-        await asyncio.start_server(self._module_conn,
-                                   host="0.0.0.0", port=self.cfg.module_port)
+        self.module_server = await asyncio.start_server(
+            self._module_conn, host="0.0.0.0", port=self.cfg.module_port)
+
+    async def rebind_module_port(self, port: int) -> None:
+        """The connect port can move without a restart: close the old listener
+        and open a new one on the same loop."""
+        if getattr(self, "module_server", None) is not None:
+            self.module_server.close()
+            await self.module_server.wait_closed()
+        self.module_server = await asyncio.start_server(
+            self._module_conn, host="0.0.0.0", port=port)
 
     def bind_pending(self, entry: dict) -> None:
         """A module that was pending gets a slot: re-bind its live session so

@@ -20,6 +20,7 @@ async def main(cfg_path: str) -> None:
     await runner.setup()
     site = aiohttp_web.TCPSite(runner, host=cfg.web_bind, port=cfg.web_port)
     await site.start()
+    web.web_site = site
     print(f"bell host up: module port {cfg.module_port}, "
           f"web port {cfg.web_port}")
     await asyncio.Event().wait()
